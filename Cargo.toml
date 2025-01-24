@@ -1,0 +1,13 @@
+[package]
+name = "rustr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.42", features = ["full"] }
+nostr-sdk = { version = "0.38", features = [] }
+serde = { version = "1.0.217", features = [] }
+serde_yml = { version = "0.0.12" }
+anyhow = { version = "1.0.95" }
+thiserror = { version = "2.0.11" }
+derive_more = { version = "1", features = ["full"] }
