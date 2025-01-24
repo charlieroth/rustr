@@ -4,7 +4,6 @@ use crate::config::Config;
 
 pub struct App {
     pub config: Config,
-    pub keys: Keys,
     pub client: Client,
 }
 
@@ -14,8 +13,7 @@ impl App {
         let keys = Keys::new(sk);
         Self {
             config,
-            keys: keys.clone(),
-            client: Client::new(keys.clone()),
+            client: Client::new(keys),
         }
     }
 
@@ -31,8 +29,6 @@ impl App {
         let builder = EventBuilder::text_note(message);
         let output = self.client.send_event_builder(builder).await?;
         let event_id = output.id().to_bech32()?;
-        println!("Success: {:?}", output.success);
-        println!("Note sent to: {:?}", output.failed);
         Ok(event_id)
     }
 }
