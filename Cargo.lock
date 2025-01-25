@@ -1241,6 +1241,7 @@ dependencies = [
  "anyhow",
  "clap",
  "derive_more",
+ "nostr-relay-pool",
  "nostr-sdk",
  "serde",
  "serde_yml",

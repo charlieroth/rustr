@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.42", features = ["full"] }
 nostr-sdk = { version = "0.38", features = [] }
+nostr-relay-pool = { version = "0.38", features = [] }
 serde = { version = "1.0.217", features = [] }
 serde_yml = { version = "0.0.12" }
 anyhow = { version = "1.0.95" }

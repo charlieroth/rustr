@@ -9,5 +9,6 @@ pub struct CliArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum CliCommand {
+    Profile { npub: Option<String> },
     Post { message: String },
 }
