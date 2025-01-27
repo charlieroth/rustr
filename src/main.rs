@@ -1,96 +1,193 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use color_eyre::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Stylize,
-    symbols::border,
-    text::{Line, Text},
-    widgets::{Block, Paragraph, Widget},
+    layout::{Constraint, Layout, Position},
+    style::{Color, Modifier, Style, Stylize},
+    text::{Line, Span, Text},
+    widgets::{Block, List, ListItem, Paragraph},
     DefaultTerminal, Frame,
 };
-use std::io;
 
-#[derive(Debug, Default)]
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let terminal = ratatui::init();
+    let app_result = App::new().run(terminal);
+    ratatui::restore();
+    app_result
+}
+
+#[derive(Debug)]
+enum InputMode {
+    Normal,
+    Insert,
+}
+
+#[derive(Debug)]
 struct App {
-    counter: u8,
+    /// Current value of the input box
+    input: String,
+    /// Position of the cursor in the editor area
+    character_index: usize,
+    /// Current input mode
+    input_mode: InputMode,
+    /// History of recorded messages
+    messages: Vec<String>,
+    /// Whether the application should exit
     exit: bool,
 }
 
 impl App {
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !self.exit {
-            terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+    const fn new() -> Self {
+        Self {
+            input: String::new(),
+            input_mode: InputMode::Normal,
+            character_index: 0,
+            messages: Vec::new(),
+            exit: false,
         }
-        Ok(())
+    }
+
+    fn submit_message(&mut self) {
+        self.messages.push(self.input.clone());
+        self.input.clear();
+        self.reset_cursor();
+    }
+
+    fn move_cursor_left(&mut self) {
+        let cursor_moved_left = self.character_index.saturating_sub(1);
+        self.character_index = self.clamp_cursor(cursor_moved_left);
+    }
+
+    fn move_cursor_right(&mut self) {
+        let cursor_moved_right = self.character_index.saturating_add(1);
+        self.character_index = self.clamp_cursor(cursor_moved_right);
+    }
+
+    fn clamp_cursor(&self, new_cursor_position: usize) -> usize {
+        new_cursor_position.min(self.input.len())
+    }
+
+    fn reset_cursor(&mut self) {
+        self.character_index = 0;
+    }
+
+    fn enter_char(&mut self, c: char) {
+        let index = self.byte_index();
+        self.input.insert(index, c);
+        self.move_cursor_right();
+    }
+
+    fn delete_char(&mut self) {
+        let is_not_cursor_leftmost = self.character_index != 0;
+        if is_not_cursor_leftmost {
+            let current_index = self.character_index;
+            let from_left_to_current_index = current_index - 1;
+            let before_char_to_delete = self.input.chars().take(from_left_to_current_index);
+            let after_char_to_delete = self.input.chars().skip(current_index);
+            self.input = before_char_to_delete.chain(after_char_to_delete).collect();
+            self.move_cursor_left();
+        }
+    }
+
+    fn byte_index(&self) -> usize {
+        self.input
+            .char_indices()
+            .map(|(i, _)| i)
+            .nth(self.character_index)
+            .unwrap_or(self.input.len())
+    }
+
+    fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        loop {
+            terminal.draw(|frame| self.draw(frame))?;
+            if let Event::Key(key) = event::read()? {
+                match self.input_mode {
+                    InputMode::Normal => match key.code {
+                        KeyCode::Char('i') => {
+                            self.input_mode = InputMode::Insert;
+                        }
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    },
+                    InputMode::Insert if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode::Enter => self.submit_message(),
+                        KeyCode::Char(c) => self.enter_char(c),
+                        KeyCode::Backspace => self.delete_char(),
+                        KeyCode::Left => self.move_cursor_left(),
+                        KeyCode::Right => self.move_cursor_right(),
+                        KeyCode::Esc => self.input_mode = InputMode::Normal,
+                        _ => {}
+                    },
+                    InputMode::Insert => {}
+                }
+            }
+        }
     }
 
     fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
-    }
-
-    fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)?;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn handle_key_event(&mut self, key_event: KeyEvent) -> io::Result<()> {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Left => self.decrement_counter(),
-            KeyCode::Right => self.increment_counter(),
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn exit(&mut self) {
-        self.exit = true;
-    }
-
-    fn increment_counter(&mut self) {
-        self.counter += 1;
-    }
-
-    fn decrement_counter(&mut self) {
-        self.counter -= 1;
-    }
-}
-
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Line::from(" Counter ".bold());
-        let instructions = Line::from(vec![
-            " Decrement ".into(),
-            "<Left>".blue().bold(),
-            " Increment ".into(),
-            "<Right>".blue().bold(),
-            " Quit ".into(),
-            "<Q> ".blue().bold(),
+        let vertical = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Min(1),
         ]);
-        let block = Block::bordered()
-            .title(title.centered())
-            .title_bottom(instructions.centered())
-            .border_set(border::THICK);
-        let counter_text = Text::from(vec![Line::from(vec![
-            "Value: ".into(),
-            self.counter.to_string().yellow(),
-        ])]);
-        Paragraph::new(counter_text)
-            .centered()
-            .block(block)
-            .render(area, buf);
-    }
-}
+        let [help_area, input_area, messages_area] = vertical.areas(frame.area());
+        let (msg, style) = match self.input_mode {
+            InputMode::Normal => (
+                vec![
+                    "Press ".into(),
+                    "q".bold(),
+                    " to exit, ".into(),
+                    "i".bold(),
+                    " to start editing".into(),
+                ],
+                Style::default().add_modifier(Modifier::RAPID_BLINK),
+            ),
+            InputMode::Insert => (
+                vec![
+                    "Press ".into(),
+                    "Esc".bold(),
+                    " to exit insert mode, ".into(),
+                    "Enter".bold(),
+                    " to submit message".into(),
+                ],
+                Style::default(),
+            ),
+        };
 
-fn main() -> io::Result<()> {
-    let mut terminal = ratatui::init();
-    let app_result = App::default().run(&mut terminal);
-    ratatui::restore();
-    app_result
+        let text = Text::from(Line::from(msg)).patch_style(style);
+        let help_message = Paragraph::new(text);
+        frame.render_widget(help_message, help_area);
+
+        let input = Paragraph::new(self.input.as_str())
+            .style(match self.input_mode {
+                InputMode::Normal => Style::default(),
+                InputMode::Insert => Style::default().fg(Color::Yellow),
+            })
+            .block(Block::bordered().title("Input"));
+        frame.render_widget(input, input_area);
+
+        match self.input_mode {
+            InputMode::Normal => {}
+            #[allow(clippy::cast_possible_truncation)]
+            InputMode::Insert => frame.set_cursor_position(Position::new(
+                input_area.x + self.character_index as u16 + 1,
+                input_area.y + 1,
+            )),
+        }
+
+        let messages: Vec<ListItem> = self
+            .messages
+            .iter()
+            .enumerate()
+            .map(|(i, msg)| {
+                let content = Line::from(Span::raw(format!("{i}: {msg}")));
+                ListItem::new(content)
+            })
+            .collect();
+
+        let messages = List::new(messages).block(Block::bordered().title("Messages"));
+        frame.render_widget(messages, messages_area);
+    }
 }
